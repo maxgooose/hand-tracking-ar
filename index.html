@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Tracking AR - Tetris</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500&family=Orbitron:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --accent: #000000;
+            --accent-dim: rgba(0, 0, 0, 0.6);
+            --bg: #ffffff;
+            --text-main: rgba(0, 0, 0, 0.9);
+            --text-dim: rgba(0, 0, 0, 0.4);
+            --font-mono: 'JetBrains Mono', monospace;
+            --font-display: 'Orbitron', sans-serif;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background: var(--bg);
+            overflow: hidden;
+            width: 100vw;
+            height: 100vh;
+            font-family: var(--font-mono);
+            color: var(--text-main);
+        }
+
+        video {
+            display: none;
+        }
+
+        canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 10;
+        }
+
+        #status {
+            position: fixed;
+            top: 40px;
+            left: 40px;
+            font-family: var(--font-display);
+            font-size: 10px;
+            font-weight: 500;
+            color: var(--accent);
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            z-index: 100;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        #status::before {
+            content: '';
+            display: block;
+            width: 6px;
+            height: 6px;
+            background: var(--accent);
+            border-radius: 50%;
+            box-shadow: 0 0 10px var(--accent);
+        }
+
+        #distance-display {
+            position: fixed;
+            top: 40px;
+            right: 40px;
+            font-size: 11px;
+            color: var(--text-dim);
+            text-align: right;
+            z-index: 100;
+            font-weight: 300;
+            letter-spacing: 1px;
+        }
+
+        .hand-distance {
+            margin-bottom: 4px;
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .hand-distance span {
+            color: var(--text-main);
+            font-weight: 500;
+            font-variant-numeric: tabular-nums;
+        }
+
+        #ui {
+            position: fixed;
+            bottom: 60px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+        }
+
+        #start-btn {
+            background: transparent;
+            border: 1px solid var(--accent-dim);
+            color: var(--accent);
+            padding: 12px 32px;
+            font-family: var(--font-display);
+            font-size: 12px;
+            letter-spacing: 4px;
+            cursor: pointer;
+            transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            text-transform: uppercase;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #start-btn:hover {
+            border-color: var(--accent);
+            background: rgba(0, 242, 255, 0.05);
+            letter-spacing: 6px;
+        }
+
+        #start-btn::before, #start-btn::after {
+            content: '';
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            border: 1px solid var(--accent);
+        }
+
+        #start-btn::before { top: -1px; left: -1px; border-right: 0; border-bottom: 0; }
+        #start-btn::after { bottom: -1px; right: -1px; border-left: 0; border-top: 0; }
+
+        #start-btn.active {
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(20px);
+        }
+
+        .hud-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(var(--accent-dim) 1px, transparent 1px),
+                linear-gradient(90deg, var(--accent-dim) 1px, transparent 1px);
+            background-size: 40px 40px;
+            background-position: center center;
+            opacity: 0.05;
+            pointer-events: none;
+            z-index: 1;
+        }
+
+        .hud-corner {
+            position: fixed;
+            width: 40px;
+            height: 40px;
+            border: 1px solid var(--accent-dim);
+            z-index: 2;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+
+        .top-left { top: 20px; left: 20px; border-right: 0; border-bottom: 0; }
+        .top-right { top: 20px; right: 20px; border-left: 0; border-bottom: 0; }
+        .bottom-left { bottom: 20px; left: 20px; border-right: 0; border-top: 0; }
+        .bottom-right { bottom: 20px; right: 20px; border-left: 0; border-top: 0; }
+    </style>
+</head>
+<body>
+    <div class="hud-grid"></div>
+    <div class="hud-corner top-left"></div>
+    <div class="hud-corner top-right"></div>
+    <div class="hud-corner bottom-left"></div>
+    <div class="hud-corner bottom-right"></div>
+
+    <video id="video" autoplay playsinline></video>
+    <canvas id="video-canvas"></canvas>
+
+    <div id="status" style="display:none">System.Ready</div>
+    
+    <div id="distance-display" style="display:none">
+    </div>
+
+    <div id="ui">
+        <button id="start-btn">Initialize</button>
+    </div>
+
+    <script type="module" src="app.js"></script>
+</body>
+</html>
