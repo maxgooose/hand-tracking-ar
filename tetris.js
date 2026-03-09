@@ -106,6 +106,14 @@ export class Tetris {
         this.isDraggingPiece = false;
         this.draggedPiece = null;
         
+        // Scoring state
+        this.score = 0;
+        this.level = 1;
+        this.totalLinesCleared = 0;
+        
+        // Game state
+        this.gameOver = false;
+        
         this.spawnPiece();
     }
 
@@ -131,6 +139,11 @@ export class Tetris {
             targetScreenX: 0,
             targetScreenY: 0
         };
+        
+        // Check game over (if piece immediately overlaps when entering play zone later)
+        // Wait, game over is usually when a piece spawns and overlaps. In our game, piece spawns in spawn zone above the board.
+        // Let's implement check after it enters play zone or when lockPiece is called.
+
     }
 
     rotatePiece(piece) {
@@ -211,15 +224,21 @@ export class Tetris {
             hold.isTargeted = false;
         });
         
+        // If paused, keep timers fresh so things don't happen immediately on unpause
+        if (this.paused) {
+            this.lastDropTime = currentTime;
+            if (this.pendingSpawn) this.lastHoldTime = currentTime;
+        }
+
         // Check if current piece has entered play zone
-        if (this.currentPiece && !this.currentPiece.inPlayZone && !this.currentPiece.isGrabbed) {
+        if (!this.paused && !this.gameOver && this.currentPiece && !this.currentPiece.inPlayZone && !this.currentPiece.isGrabbed) {
             if (this.currentPiece.y >= 0) {
                 this.currentPiece.inPlayZone = true;
             }
         }
         
         // Spawn new piece after hold delay
-        if (this.pendingSpawn && !this.currentPiece) {
+        if (!this.paused && !this.gameOver && this.pendingSpawn && !this.currentPiece) {
             if (currentTime - this.lastHoldTime >= HOLD_SPAWN_DELAY) {
                 this.spawnPiece();
                 this.pendingSpawn = false;
@@ -227,12 +246,12 @@ export class Tetris {
         }
         
         // Handle hand interaction
-        if (hands) {
+        if (!this.paused && hands) {
             this.handleHandInteraction(hands, pinchDistances, canvasWidth, canvasHeight, currentTime);
         }
         
         // Auto-drop only if piece is not grabbed and exists
-        if (this.currentPiece && !this.currentPiece.isGrabbed) {
+        if (!this.paused && !this.gameOver && this.currentPiece && !this.currentPiece.isGrabbed) {
             if (currentTime - this.lastDropTime > this.dropInterval) {
                 this.lastDropTime = currentTime;
                 this.dropPiece();
@@ -244,6 +263,17 @@ export class Tetris {
     }
 
     handleHandInteraction(hands, pinchDistances, w, h, currentTime) {
+        if (this.gameOver) {
+            // Check for pinch to restart
+            for (let side of ['left', 'right']) {
+                if (hands[side] && pinchDistances[side] < 0.09) {
+                    this.restart();
+                    return;
+                }
+            }
+            return;
+        }
+
         this.isDraggingPiece = false;
         this.draggedPiece = null;
         
@@ -687,6 +717,37 @@ export class Tetris {
         });
     }
 
+    restart() {
+        this.board = this.createEmptyBoard();
+        this.score = 0;
+        this.level = 1;
+        this.totalLinesCleared = 0;
+        this.dropInterval = 600;
+        this.gameOver = false;
+        this.lastDropTime = performance.now();
+        this.currentPiece = null;
+        this.pendingSpawn = false;
+        
+        // Clear holds
+        this.holds.forEach(hold => {
+            hold.pieces = [];
+            hold.type = null;
+            hold.isTargeted = false;
+        });
+
+        // Reset interaction states
+        ['left', 'right'].forEach(side => {
+            this.interactionState[side].state = INTERACTION_STATES.IDLE;
+            this.interactionState[side].target = null;
+            this.interactionState[side].grabOffset = null;
+            this.interactionState[side].grabAngle = null;
+            this.interactionState[side].isPlayZoneGrab = false;
+            this.interactionState[side].currentRotation = undefined;
+        });
+
+        this.spawnPiece();
+    }
+
     dropPiece() {
         if (!this.currentPiece || this.currentPiece.isGrabbed) return;
 
@@ -709,9 +770,14 @@ export class Tetris {
         if (!this.currentPiece) return;
         
         // Drop piece all the way down
+        let dropDistance = 0;
         while (this.canMove(0, 1)) {
             this.currentPiece.y++;
+            dropDistance++;
         }
+        
+        // Hard drop bonus
+        this.score += dropDistance * 2;
         
         // Lock immediately
         this.lockPiece();
@@ -766,26 +832,51 @@ export class Tetris {
         const piece = this.currentPiece;
         if (!piece) return;
 
+        let lockedAboveBoard = false;
+
         for (let row = 0; row < piece.shape.length; row++) {
             for (let col = 0; col < piece.shape[row].length; col++) {
                 if (piece.shape[row][col]) {
                     const boardY = piece.y + row;
                     const boardX = piece.x + col;
+                    if (boardY < 0) {
+                        lockedAboveBoard = true;
+                    }
                     if (boardY >= 0 && boardY < ROWS) {
                         this.board[boardY][boardX] = piece.type;
                     }
                 }
             }
         }
+        
+        if (lockedAboveBoard) {
+            this.gameOver = true;
+        }
     }
 
     clearLines() {
+        let linesCleared = 0;
         for (let row = ROWS - 1; row >= 0; row--) {
             if (this.board[row].every(cell => cell !== 0)) {
                 this.board.splice(row, 1);
                 this.board.unshift(Array(COLS).fill(0));
+                linesCleared++;
                 row++;
             }
+        }
+        
+        if (linesCleared > 0) {
+            this.totalLinesCleared += linesCleared;
+            
+            // Standard Tetris scoring
+            const basePoints = [0, 100, 300, 500, 800];
+            this.score += basePoints[linesCleared] * this.level;
+            
+            // Level up every 10 lines
+            this.level = Math.floor(this.totalLinesCleared / 10) + 1;
+            
+            // Speed up dropping, floor at 100ms
+            this.dropInterval = Math.max(100, 600 - (this.level - 1) * 50);
         }
     }
 
@@ -879,6 +970,47 @@ export class Tetris {
 
         // Draw holds
         this.drawHolds(ctx);
+
+        // Draw Score HUD
+        ctx.font = '10px "Orbitron"';
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+        ctx.textAlign = 'left';
+        ctx.fillText(`SCORE: ${this.score}`, offsetX, offsetY + this.boardHeight + 25);
+        ctx.textAlign = 'center';
+        ctx.fillText(`LEVEL: ${this.level}`, offsetX + this.boardWidth / 2, offsetY + this.boardHeight + 25);
+        ctx.textAlign = 'right';
+        ctx.fillText(`LINES: ${this.totalLinesCleared}`, offsetX + this.boardWidth, offsetY + this.boardHeight + 25);
+
+        // Draw overlays
+        if (this.gameOver) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.fillRect(offsetX, offsetY, this.boardWidth, this.boardHeight);
+            
+            ctx.font = 'bold 16px "Orbitron"';
+            ctx.fillStyle = 'rgba(200, 0, 0, 0.9)';
+            ctx.textAlign = 'center';
+            ctx.fillText('GAME OVER', offsetX + this.boardWidth / 2, offsetY + this.boardHeight / 2 - 20);
+            
+            ctx.font = '10px "JetBrains Mono"';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.fillText(`FINAL SCORE: ${this.score}`, offsetX + this.boardWidth / 2, offsetY + this.boardHeight / 2 + 10);
+            
+            ctx.font = '9px "JetBrains Mono"';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillText('PINCH TO RESTART', offsetX + this.boardWidth / 2, offsetY + this.boardHeight / 2 + 35);
+        } else if (this.paused) {
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+            ctx.fillRect(offsetX, offsetY, this.boardWidth, this.boardHeight);
+            
+            ctx.font = 'bold 14px "Orbitron"';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+            ctx.textAlign = 'center';
+            ctx.fillText('PAUSED', offsetX + this.boardWidth / 2, offsetY + this.boardHeight / 2 - 10);
+            
+            ctx.font = '9px "JetBrains Mono"';
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+            ctx.fillText('SHOW HANDS TO RESUME', offsetX + this.boardWidth / 2, offsetY + this.boardHeight / 2 + 15);
+        }
     }
 
     drawPiece(ctx, piece, offsetX, offsetY) {

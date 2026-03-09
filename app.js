@@ -35,6 +35,7 @@ let isRunning = false;
 let hands = { left: null, right: null };
 let pinchDistances = { left: null, right: null };
 let lastPinchState = { left: false, right: false };
+let lastHandsSeenTime = 0;
 
 // HUD State
 let fps = 0;
@@ -219,6 +220,8 @@ function detect() {
     pinchDistances = { left: null, right: null };
 
     if (results.landmarks && results.landmarks.length > 0) {
+        lastHandsSeenTime = performance.now();
+        
         for (let i = 0; i < results.landmarks.length; i++) {
             const landmarks = results.landmarks[i];
             const handedness = results.handednesses[i][0].categoryName;
@@ -247,6 +250,13 @@ function detect() {
                 lastPinchState[handKey] = isPinching;
             }
         }
+    }
+    
+    // Check pause state
+    if (performance.now() - lastHandsSeenTime > 1500) {
+        tetris.paused = true;
+    } else {
+        tetris.paused = false;
     }
     
     tetris.update(performance.now(), hands, pinchDistances, canvas.width, canvas.height);
